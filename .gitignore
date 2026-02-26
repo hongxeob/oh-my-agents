@@ -1,0 +1,20 @@
+# Node modules
+node_modules/
+mcp/node_modules/
+server/node_modules/
+web/node_modules/
+
+# Build artifacts
+web/dist/
+web/tsconfig.tsbuildinfo
+
+# Local tool/runtime state
+.idea/
+.omx/
+.omc/
+
+# Local MCP config (contains absolute path)
+.mcp.json
+
+# OS/Editor artifacts
+.DS_Store
