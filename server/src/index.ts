@@ -15,7 +15,7 @@ const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "http://localhost:51
 app.use(
   cors({
     origin: allowedOrigins,
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PATCH"],
     allowedHeaders: ["Content-Type"],
   })
 );

@@ -13,13 +13,14 @@ server.tool(
     taskId: z.string(),
     title: z.string(),
     assigneeAgent: z.string(),
+    projectId: z.string().optional(),
   },
-  async ({ taskId, title, assigneeAgent }) => {
+  async ({ taskId, title, assigneeAgent, projectId }) => {
     try {
       const res = await fetch(`${BASE_URL}/api/tasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId, title, assigneeAgent }),
+        body: JSON.stringify({ taskId, title, assigneeAgent, projectId }),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -51,15 +52,19 @@ server.tool(
 
 server.tool(
   "kanban_send_event",
-  "Send an event to change task status",
+  "Send an event to change task status. For task.started, title and assigneeAgent are required.",
   {
     type: z.enum(["task.started", "task.completed", "task.failed"]),
     taskId: z.string(),
+    title: z.string().optional(),
+    assigneeAgent: z.string().optional(),
     message: z.string().optional(),
   },
-  async ({ type, taskId, message }) => {
+  async ({ type, taskId, title, assigneeAgent, message }) => {
     try {
       const body: Record<string, unknown> = { type, taskId };
+      if (title !== undefined) body.title = title;
+      if (assigneeAgent !== undefined) body.assigneeAgent = assigneeAgent;
       if (message !== undefined) body.message = message;
 
       const res = await fetch(`${BASE_URL}/api/events`, {

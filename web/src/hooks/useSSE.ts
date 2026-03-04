@@ -1,12 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Task, TaskStatus } from '../types';
 
 type TaskRecord = Record<string, Task>;
 
-interface GroupedTasks {
+export interface GroupedTasks {
   todo: Task[];
   doing: Task[];
   done: Task[];
+}
+
+export interface SSEResult {
+  grouped: GroupedTasks;
+  projects: string[];
+  allTasks: Task[];
 }
 
 function isTask(value: unknown): value is Task {
@@ -42,7 +48,21 @@ function parseTask(raw: string): Task | null {
   }
 }
 
-export function useSSE(): GroupedTasks {
+function groupAndSort(tasks: Task[]): GroupedTasks {
+  const grouped: GroupedTasks = { todo: [], doing: [], done: [] };
+  for (const task of tasks) {
+    const bucket = task.status as TaskStatus;
+    if (bucket in grouped) grouped[bucket].push(task);
+  }
+  for (const key of Object.keys(grouped) as TaskStatus[]) {
+    grouped[key].sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    );
+  }
+  return grouped;
+}
+
+export function useSSE(projectId?: string): SSEResult {
   const [tasks, setTasks] = useState<TaskRecord>({});
 
   useEffect(() => {
@@ -68,19 +88,22 @@ export function useSSE(): GroupedTasks {
     };
   }, []);
 
-  const grouped: GroupedTasks = { todo: [], doing: [], done: [] };
-  for (const task of Object.values(tasks)) {
-    const bucket = task.status as TaskStatus;
-    if (bucket in grouped) {
-      grouped[bucket].push(task);
+  const allTasks = useMemo(() => Object.values(tasks), [tasks]);
+
+  const projects = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of allTasks) {
+      if (t.projectId) set.add(t.projectId);
     }
-  }
+    return Array.from(set).sort();
+  }, [allTasks]);
 
-  for (const key of Object.keys(grouped) as TaskStatus[]) {
-    grouped[key].sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    );
-  }
+  const filtered = useMemo(
+    () => (projectId ? allTasks.filter((t) => t.projectId === projectId) : allTasks),
+    [allTasks, projectId]
+  );
 
-  return grouped;
+  const grouped = useMemo(() => groupAndSort(filtered), [filtered]);
+
+  return { grouped, projects, allTasks };
 }
