@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { Task } from '../types';
 import { useSSE } from '../hooks/useSSE';
 import { KanbanColumn } from './KanbanColumn';
@@ -7,27 +7,23 @@ import { TaskDetailPanel } from './TaskDetailPanel';
 
 export function KanbanBoard() {
   const [selectedProject, setSelectedProject] = useState<string | undefined>(undefined);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
-  const { grouped, projects, allTasks } = useSSE(selectedProject);
+  const { grouped, projects, tasksById } = useSSE(selectedProject);
+
+  // O(1) lookup — always reflects latest SSE state without extra state sync
+  const liveTask = useMemo(
+    () => (selectedTaskId ? (tasksById[selectedTaskId] ?? null) : null),
+    [tasksById, selectedTaskId]
+  );
 
   const handleCardClick = useCallback((task: Task) => {
-    setSelectedTask(task);
+    setSelectedTaskId(task.taskId);
   }, []);
 
   const handleClose = useCallback(() => {
-    setSelectedTask(null);
+    setSelectedTaskId(null);
   }, []);
-
-  // Keep panel in sync with latest SSE data
-  const handleTaskUpdated = useCallback((updated: Task) => {
-    setSelectedTask((prev) => (prev?.taskId === updated.taskId ? updated : prev));
-  }, []);
-
-  // When SSE pushes an update, sync the panel if it's open
-  const liveTask = selectedTask
-    ? (allTasks.find((t) => t.taskId === selectedTask.taskId) ?? selectedTask)
-    : null;
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
@@ -74,11 +70,7 @@ export function KanbanBoard() {
 
       {/* Detail panel */}
       {liveTask && (
-        <TaskDetailPanel
-          task={liveTask}
-          onClose={handleClose}
-          onTaskUpdated={handleTaskUpdated}
-        />
+        <TaskDetailPanel task={liveTask} onClose={handleClose} />
       )}
     </div>
   );

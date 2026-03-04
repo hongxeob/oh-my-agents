@@ -8,16 +8,13 @@ interface Props {
 
 function formatTime(iso: string): string {
   try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch {
     return iso;
   }
 }
 
 export function TaskCard({ task, onClick }: Props) {
-  const logs = task.recentLog.slice(0, 3);
-
   return (
     <div
       onClick={() => onClick(task)}
@@ -42,10 +39,10 @@ export function TaskCard({ task, onClick }: Props) {
       {/* Title */}
       <p className="text-sm font-medium text-gray-100 mb-3 leading-snug">{task.title}</p>
 
-      {/* Log lines */}
-      {logs.length > 0 && (
+      {/* Recent log lines (already capped at 3 by server) */}
+      {task.recentLog.length > 0 && (
         <div className="mb-2 space-y-0.5">
-          {logs.map((line, i) => (
+          {task.recentLog.map((line, i) => (
             <p key={i} className="text-xs text-gray-400 font-mono truncate">
               {line}
             </p>
@@ -68,9 +65,7 @@ export function TaskCard({ task, onClick }: Props) {
               ✓ {task.subTasks.filter((s) => s.done).length}/{task.subTasks.length}
             </span>
           )}
-          {task.notes && (
-            <span className="text-xs text-gray-500">✎</span>
-          )}
+          {task.notes && <span className="text-xs text-gray-500">✎</span>}
         </div>
         <span className="text-xs text-gray-500">{formatTime(task.updatedAt)}</span>
       </div>

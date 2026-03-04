@@ -102,13 +102,18 @@ server.tool(
 
 server.tool(
   "kanban_list_tasks",
-  "List all tasks, optionally filtered by status",
+  "List all tasks, optionally filtered by status and/or projectId",
   {
     status: z.enum(["todo", "doing", "done"]).optional(),
+    projectId: z.string().optional(),
   },
-  async ({ status }) => {
+  async ({ status, projectId }) => {
     try {
-      const res = await fetch(`${BASE_URL}/api/tasks`);
+      const params = new URLSearchParams();
+      if (status) params.set("status", status);
+      if (projectId) params.set("projectId", projectId);
+      const query = params.toString() ? `?${params}` : "";
+      const res = await fetch(`${BASE_URL}/api/tasks${query}`);
       if (!res.ok) {
         const text = await res.text();
         return {
@@ -120,12 +125,7 @@ server.tool(
           ],
         };
       }
-      let tasks: unknown[] = await res.json();
-      if (status !== undefined) {
-        tasks = (tasks as Array<{ status: string }>).filter(
-          (t) => t.status === status
-        );
-      }
+      const tasks = await res.json();
       return {
         content: [{ type: "text", text: JSON.stringify(tasks, null, 2) }],
       };
@@ -150,25 +150,19 @@ server.tool(
   },
   async ({ taskId }) => {
     try {
-      const res = await fetch(`${BASE_URL}/api/tasks`);
+      const res = await fetch(`${BASE_URL}/api/tasks/${encodeURIComponent(taskId)}`);
       if (!res.ok) {
         const text = await res.text();
         return {
           content: [
             {
               type: "text",
-              text: `Error fetching tasks: ${res.status} ${text}`,
+              text: `Error fetching task: ${res.status} ${text}`,
             },
           ],
         };
       }
-      const tasks: Array<{ taskId: string }> = await res.json();
-      const task = tasks.find((t) => t.taskId === taskId);
-      if (!task) {
-        return {
-          content: [{ type: "text", text: "Task not found" }],
-        };
-      }
+      const task = await res.json();
       return {
         content: [{ type: "text", text: JSON.stringify(task, null, 2) }],
       };

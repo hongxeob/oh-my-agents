@@ -6,14 +6,17 @@ function now(): string {
 }
 
 function deriveRecentLog(activityLog: LogEntry[]): string[] {
-  return activityLog
-    .filter((e) => e.type === 'progress' || e.type === 'error')
-    .slice(-3)
-    .map((e) => e.message);
+  const result: string[] = [];
+  for (let i = activityLog.length - 1; i >= 0 && result.length < 3; i--) {
+    const e = activityLog[i];
+    if (e.type === 'progress' || e.type === 'error') result.push(e.message);
+  }
+  return result.reverse();
 }
 
 export class TaskStore extends EventEmitter {
   private tasks: Map<string, Task> = new Map();
+  private projectIds: Set<string> = new Set();
 
   getAll(): Task[] {
     return Array.from(this.tasks.values());
@@ -23,12 +26,16 @@ export class TaskStore extends EventEmitter {
     return this.tasks.get(taskId);
   }
 
-  getProjects(): string[] {
-    const projects = new Set<string>();
+  getByProject(projectId: string): Task[] {
+    const result: Task[] = [];
     for (const task of this.tasks.values()) {
-      projects.add(task.projectId);
+      if (task.projectId === projectId) result.push(task);
     }
-    return Array.from(projects).sort();
+    return result;
+  }
+
+  getProjects(): string[] {
+    return Array.from(this.projectIds).sort();
   }
 
   create(taskId: string, title: string, assigneeAgent: string, projectId = 'default'): Task {
@@ -38,7 +45,7 @@ export class TaskStore extends EventEmitter {
 
     const entry: LogEntry = {
       timestamp: now(),
-      message: `Task created`,
+      message: 'Task created',
       type: 'status_change',
     };
 
@@ -55,6 +62,7 @@ export class TaskStore extends EventEmitter {
       notes: '',
       subTasks: [],
     };
+    this.projectIds.add(projectId);
     this.tasks.set(taskId, task);
     this.emit('task.updated', task);
     return task;
@@ -63,67 +71,55 @@ export class TaskStore extends EventEmitter {
   applyEvent(event: TaskEvent): Task {
     let task = this.tasks.get(event.taskId);
     const timestamp = now();
+    const newEntries: LogEntry[] = [];
 
     if (event.type === 'task.started') {
-      const statusEntry: LogEntry = { timestamp, message: 'Task started', type: 'status_change' };
+      newEntries.push({ timestamp, message: 'Task started', type: 'status_change' });
       if (!task) {
+        const projectId = event.projectId ?? 'default';
+        this.projectIds.add(projectId);
         task = {
           taskId: event.taskId,
-          projectId: event.projectId ?? 'default',
+          projectId,
           title: event.title ?? '',
           assigneeAgent: event.assigneeAgent ?? '',
           status: 'doing',
           updatedAt: timestamp,
-          activityLog: [statusEntry],
+          activityLog: [],
           recentLog: [],
           failed: false,
           notes: '',
           subTasks: [],
         };
       } else {
-        task = {
-          ...task,
-          status: 'doing',
-          activityLog: [...task.activityLog, statusEntry],
-        };
+        task = { ...task, status: 'doing' };
       }
     } else if (event.type === 'task.completed') {
       if (!task) throw new Error(`Task ${event.taskId} not found`);
-      const statusEntry: LogEntry = { timestamp, message: 'Task completed', type: 'status_change' };
-      task = {
-        ...task,
-        status: 'done',
-        failed: false,
-        errorMessage: undefined,
-        activityLog: [...task.activityLog, statusEntry],
-      };
+      newEntries.push({ timestamp, message: 'Task completed', type: 'status_change' });
+      task = { ...task, status: 'done', failed: false, errorMessage: undefined };
     } else if (event.type === 'task.failed') {
       if (!task) throw new Error(`Task ${event.taskId} not found`);
-      const statusEntry: LogEntry = {
+      newEntries.push({
         timestamp,
         message: `Task failed${event.message ? `: ${event.message}` : ''}`,
         type: 'error',
-      };
-      task = {
-        ...task,
-        status: 'done',
-        failed: true,
-        errorMessage: event.message,
-        activityLog: [...task.activityLog, statusEntry],
-      };
+      });
+      task = { ...task, status: 'done', failed: true, errorMessage: event.message };
     } else {
       throw new Error(`Unknown event type: ${(event as TaskEvent).type}`);
     }
 
     if (event.message && event.type !== 'task.failed') {
-      const progressEntry: LogEntry = { timestamp, message: event.message, type: 'progress' };
-      task = { ...task, activityLog: [...task.activityLog, progressEntry] };
+      newEntries.push({ timestamp, message: event.message, type: 'progress' });
     }
 
+    const activityLog = [...task.activityLog, ...newEntries];
     task = {
       ...task,
+      activityLog,
+      recentLog: deriveRecentLog(activityLog),
       updatedAt: timestamp,
-      recentLog: deriveRecentLog(task.activityLog),
     };
 
     this.tasks.set(task.taskId, task);

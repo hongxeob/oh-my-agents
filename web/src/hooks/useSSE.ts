@@ -13,6 +13,7 @@ export interface SSEResult {
   grouped: GroupedTasks;
   projects: string[];
   allTasks: Task[];
+  tasksById: TaskRecord;
 }
 
 function isTask(value: unknown): value is Task {
@@ -63,38 +64,32 @@ function groupAndSort(tasks: Task[]): GroupedTasks {
 }
 
 export function useSSE(projectId?: string): SSEResult {
-  const [tasks, setTasks] = useState<TaskRecord>({});
+  const [tasksById, setTasksById] = useState<TaskRecord>({});
 
   useEffect(() => {
     const es = new EventSource('/api/sse');
 
     es.addEventListener('init', (e: MessageEvent) => {
-      const taskArray: Task[] = parseTaskList(e.data);
+      const taskArray = parseTaskList(e.data);
       const record: TaskRecord = {};
-      for (const task of taskArray) {
-        record[task.taskId] = task;
-      }
-      setTasks(record);
+      for (const task of taskArray) record[task.taskId] = task;
+      setTasksById(record);
     });
 
     es.addEventListener('task.updated', (e: MessageEvent) => {
       const task = parseTask(e.data);
       if (!task) return;
-      setTasks((prev) => ({ ...prev, [task.taskId]: task }));
+      setTasksById((prev) => ({ ...prev, [task.taskId]: task }));
     });
 
-    return () => {
-      es.close();
-    };
+    return () => es.close();
   }, []);
 
-  const allTasks = useMemo(() => Object.values(tasks), [tasks]);
+  const allTasks = useMemo(() => Object.values(tasksById), [tasksById]);
 
   const projects = useMemo(() => {
     const set = new Set<string>();
-    for (const t of allTasks) {
-      if (t.projectId) set.add(t.projectId);
-    }
+    for (const t of allTasks) if (t.projectId) set.add(t.projectId);
     return Array.from(set).sort();
   }, [allTasks]);
 
@@ -105,5 +100,5 @@ export function useSSE(projectId?: string): SSEResult {
 
   const grouped = useMemo(() => groupAndSort(filtered), [filtered]);
 
-  return { grouped, projects, allTasks };
+  return { grouped, projects, allTasks, tasksById };
 }

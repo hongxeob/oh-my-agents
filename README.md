@@ -72,7 +72,33 @@ curl -X POST http://localhost:3001/api/events \
 
 ## MCP Server
 
-Claude Code에서 사용하려면 `.claude.json` 또는 MCP 설정에 추가:
+### MCP Tools
+
+| Tool | Description | Parameters |
+|------|-------------|-----------|
+| `kanban_create_task` | todo에 태스크 생성 | taskId, title, assigneeAgent |
+| `kanban_send_event` | 이벤트 전송 (상태 변경) | type, taskId, message? |
+| `kanban_list_tasks` | 전체 태스크 조회 | status? (필터) |
+| `kanban_get_task` | 단일 태스크 조회 | taskId |
+
+### 다른 프로젝트에서 사용하기
+
+다른 프로젝트에서 Claude Code 팀 에이전트가 칸반 대시보드를 사용하도록 설정하는 방법:
+
+#### 1. 서버 실행
+
+먼저 oh-my-agents 서버를 띄워둔다:
+
+```bash
+cd /path/to/oh-my-agents
+bun install
+bun run dev        # 서버(3001) + 웹(5173) 동시 실행
+# 또는 서버만: bun run dev:server
+```
+
+#### 2. 프로젝트에 MCP 설정 추가
+
+사용할 프로젝트 루트에 `.mcp.json` 파일을 생성:
 
 ```json
 {
@@ -86,14 +112,53 @@ Claude Code에서 사용하려면 `.claude.json` 또는 MCP 설정에 추가:
 }
 ```
 
-### MCP Tools
+> `cwd`를 oh-my-agents의 **절대 경로**로 변경할 것.
 
-| Tool | Description | Parameters |
-|------|-------------|-----------|
-| `kanban_create_task` | todo에 태스크 생성 | taskId, title, assigneeAgent |
-| `kanban_send_event` | 이벤트 전송 (상태 변경) | type, taskId, message? |
-| `kanban_list_tasks` | 전체 태스크 조회 | status? (필터) |
-| `kanban_get_task` | 단일 태스크 조회 | taskId |
+또는 `claude mcp add` 명령어로 추가할 수도 있다:
+
+```bash
+claude mcp add kanban -- bun /path/to/oh-my-agents/mcp/src/index.ts
+```
+
+#### 3. Claude Code에서 사용
+
+해당 프로젝트 디렉토리에서 Claude Code를 실행하면 MCP 도구가 자동 로드된다:
+
+```bash
+cd /path/to/my-project
+claude
+```
+
+Claude Code 내에서 자연어로 사용 가능:
+
+```
+"task-001로 API 설계 작업을 생성해줘"
+→ kanban_create_task 호출
+
+"task-001 작업을 시작해"
+→ kanban_send_event(type: "task.started", taskId: "task-001")
+
+"현재 진행 중인 작업 목록 보여줘"
+→ kanban_list_tasks(status: "doing")
+
+"task-001 작업 완료 처리해"
+→ kanban_send_event(type: "task.completed", taskId: "task-001")
+```
+
+#### 4. 팀 에이전트와 함께 사용하기
+
+Claude Code의 팀 에이전트(subagent)들이 작업할 때 칸반 보드로 진행 상황을 추적할 수 있다.
+CLAUDE.md 또는 프롬프트에 다음과 같이 지시:
+
+```markdown
+## 작업 추적 규칙
+- 작업 시작 시 kanban_send_event(type: "task.started")를 호출할 것
+- 작업 완료 시 kanban_send_event(type: "task.completed")를 호출할 것
+- 작업 실패 시 kanban_send_event(type: "task.failed", message: "에러 내용")를 호출할 것
+- 브라우저에서 http://localhost:5173 으로 실시간 진행 상황 확인 가능
+```
+
+이렇게 하면 여러 에이전트가 병렬로 작업하는 동안 칸반 보드에서 실시간으로 진행 상황을 모니터링할 수 있다.
 
 ## State Transitions
 
@@ -102,4 +167,3 @@ task.started  → todo/없음 → doing
 task.completed → doing → done (failed=false)
 task.failed    → doing → done (failed=true)
 ```
-# oh-my-agents

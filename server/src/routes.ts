@@ -1,6 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { TaskStore } from './store';
-import { TaskEvent, TaskPatch, SubTask } from './types';
+import { EventType, TaskEvent, TaskPatch, SubTask } from './types';
+
+const EVENT_TYPES: readonly EventType[] = ['task.started', 'task.completed', 'task.failed'];
+const TASK_STATUSES = ['todo', 'doing', 'done'] as const;
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '';
@@ -16,14 +19,23 @@ function normalizeBody(req: Request): Record<string, unknown> {
 export function createRouter(store: TaskStore): Router {
   const router = Router();
 
-  // List all tasks (optionally filtered by projectId)
+  // List all tasks (optionally filtered by projectId and/or status)
   router.get('/api/tasks', (req: Request, res: Response) => {
     const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
-    let tasks = store.getAll();
-    if (projectId) {
-      tasks = tasks.filter((t) => t.projectId === projectId);
-    }
+    const status = typeof req.query.status === 'string' && TASK_STATUSES.includes(req.query.status as typeof TASK_STATUSES[number])
+      ? req.query.status as typeof TASK_STATUSES[number]
+      : undefined;
+
+    let tasks = projectId ? store.getByProject(projectId) : store.getAll();
+    if (status) tasks = tasks.filter((t) => t.status === status);
     res.json(tasks);
+  });
+
+  // Get single task by ID
+  router.get('/api/tasks/:taskId', (req: Request, res: Response) => {
+    const task = store.getById(String(req.params.taskId));
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    return res.json(task);
   });
 
   // List all projects
@@ -37,13 +49,12 @@ export function createRouter(store: TaskStore): Router {
     const taskId = body.taskId;
     const title = body.title;
     const assigneeAgent = body.assigneeAgent;
-    const projectId = typeof body.projectId === 'string' && body.projectId.trim()
-      ? body.projectId.trim()
-      : 'default';
 
     if (!isNonEmptyString(taskId) || !isNonEmptyString(title) || !isNonEmptyString(assigneeAgent)) {
       return res.status(400).json({ error: 'taskId, title, assigneeAgent are required' });
     }
+
+    const projectId = isNonEmptyString(body.projectId) ? body.projectId : undefined;
 
     try {
       const task = store.create(taskId, title, assigneeAgent, projectId);
@@ -94,7 +105,7 @@ export function createRouter(store: TaskStore): Router {
     const body = normalizeBody(req);
     const event = body as unknown as TaskEvent;
 
-    if (event.type !== 'task.started' && event.type !== 'task.completed' && event.type !== 'task.failed') {
+    if (!EVENT_TYPES.includes(event.type)) {
       return res.status(400).json({ error: 'Invalid event type' });
     }
     if (!isNonEmptyString(event.taskId)) {

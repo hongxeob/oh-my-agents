@@ -1,34 +1,33 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Task, SubTask } from '../types';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Task, SubTask, TaskStatus, LogEntryType } from '../types';
 
 const BASE_URL = '';
 
 interface Props {
   task: Task;
   onClose: () => void;
-  onTaskUpdated: (task: Task) => void;
 }
 
-const STATUS_LABEL: Record<string, string> = {
+const STATUS_LABEL: Record<TaskStatus, string> = {
   todo: 'Todo',
   doing: 'Doing',
   done: 'Done',
 };
 
-const STATUS_COLOR: Record<string, string> = {
+const STATUS_COLOR: Record<TaskStatus, string> = {
   todo: 'bg-yellow-500/20 text-yellow-300',
   doing: 'bg-blue-500/20 text-blue-300',
   done: 'bg-green-500/20 text-green-300',
 };
 
-const LOG_ICON: Record<string, string> = {
+const LOG_ICON: Record<LogEntryType, string> = {
   status_change: '⟳',
   progress: '·',
   error: '✕',
   note: '✎',
 };
 
-const LOG_COLOR: Record<string, string> = {
+const LOG_COLOR: Record<LogEntryType, string> = {
   status_change: 'text-indigo-400',
   progress: 'text-gray-300',
   error: 'text-red-400',
@@ -37,8 +36,7 @@ const LOG_COLOR: Record<string, string> = {
 
 function formatDateTime(iso: string): string {
   try {
-    const d = new Date(iso);
-    return d.toLocaleString([], {
+    return new Date(iso).toLocaleString([], {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
@@ -59,21 +57,15 @@ function newSubTask(text: string): SubTask {
   };
 }
 
-async function patchTask(taskId: string, patch: { notes?: string; subTasks?: SubTask[] }): Promise<Task | null> {
-  try {
-    const res = await fetch(`${BASE_URL}/api/tasks/${taskId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
+async function patchTask(taskId: string, patch: { notes?: string; subTasks?: SubTask[] }): Promise<void> {
+  await fetch(`${BASE_URL}/api/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
 }
 
-export function TaskDetailPanel({ task, onClose, onTaskUpdated }: Props) {
+export function TaskDetailPanel({ task, onClose }: Props) {
   const [notes, setNotes] = useState(task.notes ?? '');
   const [subTasks, setSubTasks] = useState<SubTask[]>(task.subTasks ?? []);
   const [newSubText, setNewSubText] = useState('');
@@ -81,60 +73,58 @@ export function TaskDetailPanel({ task, onClose, onTaskUpdated }: Props) {
   const notesTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
 
-  // Sync when task updates from SSE
+  // Sync local state when switching to a different task
   useEffect(() => {
     setNotes(task.notes ?? '');
     setSubTasks(task.subTasks ?? []);
   }, [task.taskId]);
 
-  // Scroll log to bottom on open
+  // Scroll log to bottom; instant to avoid janky overlapping animations on rapid updates
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    logEndRef.current?.scrollIntoView({ behavior: 'instant' });
   }, [task.activityLog]);
 
-  // Auto-save notes with debounce
+  // Clear pending debounce on unmount to avoid stale network requests
+  useEffect(() => {
+    return () => {
+      if (notesTimeout.current) clearTimeout(notesTimeout.current);
+    };
+  }, []);
+
   const handleNotesChange = (val: string) => {
     setNotes(val);
     if (notesTimeout.current) clearTimeout(notesTimeout.current);
+    setSaving(true);
     notesTimeout.current = setTimeout(async () => {
-      setSaving(true);
-      const updated = await patchTask(task.taskId, { notes: val });
-      if (updated) onTaskUpdated(updated);
+      await patchTask(task.taskId, { notes: val });
       setSaving(false);
     }, 800);
   };
 
-  const handleToggleSubTask = async (id: string) => {
-    const updated = subTasks.map((s) => (s.id === id ? { ...s, done: !s.done } : s));
+  const saveSubTasks = useCallback(async (updated: SubTask[]) => {
     setSubTasks(updated);
-    const result = await patchTask(task.taskId, { subTasks: updated });
-    if (result) onTaskUpdated(result);
+    await patchTask(task.taskId, { subTasks: updated });
+  }, [task.taskId]);
+
+  const handleToggleSubTask = (id: string) => {
+    saveSubTasks(subTasks.map((s) => (s.id === id ? { ...s, done: !s.done } : s)));
   };
 
-  const handleAddSubTask = async () => {
+  const handleAddSubTask = () => {
     const text = newSubText.trim();
     if (!text) return;
-    const updated = [...subTasks, newSubTask(text)];
-    setSubTasks(updated);
     setNewSubText('');
-    const result = await patchTask(task.taskId, { subTasks: updated });
-    if (result) onTaskUpdated(result);
+    saveSubTasks([...subTasks, newSubTask(text)]);
   };
 
-  const handleDeleteSubTask = async (id: string) => {
-    const updated = subTasks.filter((s) => s.id !== id);
-    setSubTasks(updated);
-    const result = await patchTask(task.taskId, { subTasks: updated });
-    if (result) onTaskUpdated(result);
+  const handleDeleteSubTask = (id: string) => {
+    saveSubTasks(subTasks.filter((s) => s.id !== id));
   };
 
   return (
     <>
       {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/50 z-40"
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
 
       {/* Panel */}
       <div className="fixed right-0 top-0 h-full w-[480px] max-w-full bg-gray-900 border-l border-gray-700 z-50 flex flex-col shadow-2xl">
@@ -164,7 +154,7 @@ export function TaskDetailPanel({ task, onClose, onTaskUpdated }: Props) {
           </button>
         </div>
 
-        {/* Body — scrollable */}
+        {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
 
           {/* Activity Log */}
